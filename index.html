@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local ChromaDB RAG - No Backend</title>
+    <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .status-banner {
+            background: rgba(0, 0, 0, 0.2);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 0.95em;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .panel h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 12px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .tab-btn {
+            background: transparent;
+            color: #999;
+            border: none;
+            padding: 12px 20px;
+            cursor: pointer;
+            font-weight: 600;
+            border-bottom: 3px solid transparent;
+            width: auto;
+            transition: all 0.3s;
+        }
+
+        .tab-btn:hover {
+            color: #667eea;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+
+        textarea, input[type="text"], input[type="number"], input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 0.95em;
+            transition: all 0.3s;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            padding: 13px 28px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: 700;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        button:hover:not(:disabled) {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 14px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            display: none;
+            animation: slideIn 0.3s ease-out;
+            border-left: 4px solid;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border-left-color: #28a745;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left-color: #dc3545;
+            display: block;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left-color: #17a2b8;
+            display: block;
+        }
+
+        .document-list {
+            max-height: 480px;
+            overflow-y: auto;
+            border: 1px solid #f0f0f0;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .document-item {
+            background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+            padding: 16px;
+            margin-bottom: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s;
+        }
+
+        .document-item:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transform: translateX(4px);
+        }
+
+        .document-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .document-info p {
+            margin: 6px 0;
+            color: #666;
+            font-size: 0.9em;
+            word-break: break-word;
+            white-space: normal;
+        }
+
+        .document-info strong {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .delete-btn {
+            background: #dc3545;
+            padding: 8px 14px;
+            font-size: 0.85em;
+            width: auto;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .delete-btn:hover {
+            background: #c82333;
+        }
+
+        .answer-box {
+            background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%);
+            padding: 18px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            margin-top: 18px;
+            min-height: 120px;
+            display: none;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+        }
+
+        .answer-box.visible {
+            display: block;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .answer-box h3 {
+            color: #667eea;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+        }
+
+        .answer-box p {
+            color: #333;
+            line-height: 1.8;
+            word-break: break-word;
+        }
+
+        .source-item {
+            margin-top: 10px;
+            padding: 12px;
+            background: white;
+            border-radius: 5px;
+            border-left: 3px solid #667eea;
+        }
+
+        .source-item strong {
+            color: #667eea;
+        }
+
+        .source-item small {
+            color: #999;
+            display: block;
+            margin-top: 6px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #667eea;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 15px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .empty-state p {
+            font-size: 1.05em;
+            margin-bottom: 12px;
+        }
+
+        .doc-count {
+            margin-top: 15px;
+            color: #667eea;
+            font-weight: 600;
+            padding: 12px;
+            background: linear-gradient(135deg, #f8f9ff 0%, #fff 100%);
+            border-radius: 6px;
+            border-left: 3px solid #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .button-group button {
+            flex: 1;
+        }
+
+        .init-container {
+            background: white;
+            border-radius: 12px;
+            padding: 50px;
+            text-align: center;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
+            margin: 60px auto;
+            max-width: 550px;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .init-container h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .init-container p {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.7;
+        }
+
+        .init-container button {
+            margin-top: 25px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #eee;
+            border-radius: 10px;
+            margin: 15px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.2s ease;
+        }
+
+        .file-upload-box {
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            padding: 25px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9ff;
+        }
+
+        .file-upload-box:hover {
+            background: #f0f4ff;
+            border-color: #764ba2;
+        }
+
+        .file-upload-box.dragover {
+            background: #e8ecff;
+            border-color: #764ba2;
+            transform: scale(1.02);
+        }
+
+        .file-upload-box p {
+            color: #667eea;
+            margin: 0;
+            font-weight: 600;
+        }
+
+        .features-list {
+            text-align: left;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .features-list li {
+            margin: 10px 0;
+            color: #666;
+        }
+
+        .features-list li:before {
+            content: "✓ ";
+            color: #28a745;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            .init-container {
+                padding: 30px;
+                margin: 30px auto;
+            }
+
+            .document-item {
+                flex-direction: column;
+            }
+
+            .delete-btn {
+                width: 100%;
+            }
+
+            .panel {
+                padding: 20px;
+            }
+        }
+
+        .info-badge {
+            display: inline-block;
+            background: #e8ecff;
+            color: #667eea;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Initialization Screen -->
+        <div id="initScreen" class="init-container">
+            <h2>🚀 Local RAG System</h2>
+            <p><strong>Fully Offline • No Backend • No API Keys</strong></p>
+            <p>Store documents locally in your browser and ask questions powered by AI embeddings.</p>
+            
+            <div class="features-list">
+                <ul style="list-style: none;">
+                    <li>📚 Store documents in local vector database</li>
+                    <li>🔍 Semantic search without server</li>
+                    <li>🤖 AI-powered embeddings locally</li>
+                    <li>💾 All data stays on your device</li>
+                    <li>⚡ Works completely offline</li>
+                </ul>
+            </div>
+
+            <p style="font-size: 0.95em; color: #999;">
+                ℹ️ First-time setup downloads embedding model (~100MB, one-time only)
+            </p>
+
+            <div id="initProgress" style="display: none;">
+                <p id="initMessage" style="margin-bottom: 10px; color: #667eea; font-weight: 600;">⏳ Loading model...</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="initProgressBar"></div>
+                </div>
+                <p id="initDetails" style="font-size: 0.85em; color: #999; margin-top: 10px;">Initializing...</p>
+            </div>
+
+            <button id="initButton" onclick="initializeApp()" style="margin-top: 30px;">
+                🎯 Initialize RAG System
+            </button>
+        </div>
+
+        <!-- Main App (Hidden Initially) -->
+        <div id="mainApp" style="display: none;">
+            <header>
+                <h1>📚 Local ChromaDB RAG</h1>
+                <p>Fully offline • No backend required • Complete privacy</p>
+            </header>
+
+            <div class="status-banner">
+                <span id="modelStatus">✓ Ready</span> | 
+                <span id="dbStatus">Database Active</span> |
+                <span class="info-badge" id="docCountBadge">0 Documents</span>
+            </div>
+
+            <div class="main-content">
+                <!-- Left Panel: Upload & Documents -->
+                <div class="panel">
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchTab('upload')">📤 Upload</button>
+                        <button class="tab-btn" onclick="switchTab('documents')">📄 Documents</button>
+                    </div>
+
+                    <!-- Upload Tab -->
+                    <div id="upload" class="tab-content active">
+                        <h2>Add Document</h2>
+                        
+                        <div class="form-group">
+                            <label for="docContent">Document Content:</label>
+                            <textarea id="docContent" placeholder="Paste your document text here..."></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="docSource">Source/Title (optional):</label>
+                            <input type="text" id="docSource" placeholder="e.g., Wikipedia, Blog, Manual...">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Or upload a text file:</label>
+                            <div class="file-upload-box" id="fileUploadBox" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+                                <p>📎 Drag & drop files here or click to browse</p>
+                                <input type="file" id="fileInput" accept=".txt,.pdf,.md" style="display: none;">
+                            </div>
+                        </div>
+
+                        <button onclick="addDocument()" id="addBtn">✅ Add to Database</button>
+                        <div id="uploadStatus" class="status"></div>
+                    </div>
+
+                    <!-- Documents Tab -->
+                    <div id="documents" class="tab-content">
+                        <h2>Stored Documents</h2>
+                        <div class="button-group">
+                            <button onclick="loadDocuments()" style="background: #17a2b8;">🔄 Refresh</button>
+                            <button onclick="exportData()" style="background: #28a745;">💾 Export</button>
+                            <button onclick="clearAllDocuments()" style="background: #dc3545;">🗑️ Clear</button>
+                        </div>
+                        <div id="documentList" class="document-list">
+                            <div class="empty-state">
+                                <p>📭 No documents yet</p>
+                            </div>
+                        </div>
+                        <div id="docCount" class="doc-count">Total: 0 documents</div>
+                    </div>
+                </div>
+
+                <!-- Right Panel: RAG -->
+                <div class="panel">
+                    <h2>🤖 Ask a Question</h2>
+                    
+                    <div class="form-group">
+                        <label for="query">Your Question:</label>
+                        <textarea id="query" placeholder="Ask a question about your documents..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="resultsCount">Results to retrieve:</label>
+                        <input type="number" id="resultsCount" value="5" min="1" max="20">
+                    </div>
+
+                    <button onclick="askQuestion()" id="askBtn">🔍 Search & Answer</button>
+                    <div id="ragStatus" class="status"></div>
+
+                    <div id="loading" class="loading">
+                        <div class="spinner"></div>
+                        <p>Searching documents and generating answer...</p>
+                    </div>
+
+                    <div id="answerBox" class="answer-box">
+                        <h3>✨ Answer:</h3>
+                        <p id="answerText"></p>
+                        <div id="sourceInfo" style="margin-top: 15px; padding-top: 15px; border-top: 2px solid rgba(102, 126, 234, 0.2);"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let extractor = null;
+        let documents = {};
+        let documentCounter = 0;
+        const STORAGE_KEY = 'localRAG_documents';
+        const COUNTER_KEY = 'localRAG_counter';
+
+        function showStatus(element, message, type) {
+            element.textContent = message;
+            element.className = `status ${type}`;
+            if (type === 'success') {
+                setTimeout(() => {
+                    element.className = 'status';
+                }, 5000);
+            }
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        async function generateEmbedding(text) {
+            if (!extractor) return null;
+            try {
+                const result = await extractor(text, { pooling: 'mean', normalize: true });
+                return Array.from(result.data);
+            } catch (error) {
+                console.error('Embedding error:', error);
+                return null;
+            }
+        }
+
+        function cosineSimilarity(vecA, vecB) {
+            if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
+            let dotProduct = 0, normA = 0, normB = 0;
+            for (let i = 0; i < vecA.length; i++) {
+                dotProduct += vecA[i] * vecB[i];
+                normA += vecA[i] * vecA[i];
+                normB += vecB[i] * vecB[i];
+            }
+            normA = Math.sqrt(normA);
+            normB = Math.sqrt(normB);
+            if (normA === 0 || normB === 0) return 0;
+            return dotProduct / (normA * normB);
+        }
+
+        function saveDocuments() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
+            localStorage.setItem(COUNTER_KEY, documentCounter.toString());
+        }
+
+        function loadStoredDocuments() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            const counter = localStorage.getItem(COUNTER_KEY);
+            if (stored) documents = JSON.parse(stored);
+            if (counter) documentCounter = parseInt(counter);
+        }
+
+        async function addDocument() {
+            const content = document.getElementById('docContent').value.trim();
+            const source = document.getElementById('docSource').value.trim() || 'Untitled';
+            const statusDiv = document.getElementById('uploadStatus');
+            const addBtn = document.getElementById('addBtn');
+
+            if (!content) {
+                showStatus(statusDiv, '❌ Please enter document content', 'error');
+                return;
+            }
+
+            try {
+                addBtn.disabled = true;
+                showStatus(statusDiv, '⏳ Processing document...', 'info');
+
+                const embedding = await generateEmbedding(content);
+                if (!embedding) throw new Error('Failed to generate embedding');
+
+                documentCounter++;
+                const docId = `doc_${documentCounter}_${Date.now()}`;
+                documents[docId] = {
+                    id: docId, content, source, embedding,
+                    createdAt: new Date().toISOString(),
+                    contentLength: content.length
+                };
+
+                saveDocuments();
+                showStatus(statusDiv, '✅ Document added successfully!', 'success');
+                document.getElementById('docContent').value = '';
+                document.getElementById('docSource').value = '';
+                loadDocuments();
+                updateDocCountBadge();
+                addBtn.disabled = false;
+            } catch (error) {
+                showStatus(statusDiv, `❌ Error: ${error.message}`, 'error');
+                addBtn.disabled = false;
+            }
+        }
+
+        function loadDocuments() {
+            const listDiv = document.getElementById('documentList');
+            const countDiv = document.getElementById('docCount');
+            const allDocs = Object.values(documents);
+
+            if (allDocs.length === 0) {
+                listDiv.innerHTML = '<div class="empty-state"><p>📭 No documents yet</p></div>';
+                countDiv.textContent = 'Total: 0 documents';
+                return;
+            }
+
+            listDiv.innerHTML = allDocs.map(doc => `
+                <div class="document-item">
+                    <div class="document-info">
+                        <strong>📌 ${doc.source}</strong>
+                        <p>📝 ${doc.content.substring(0, 120)}${doc.content.length > 120 ? '...' : ''}</p>
+                        <p style="color: #999; font-size: 0.85em;">⏰ ${new Date(doc.createdAt).toLocaleDateString()} | 📊 ${doc.contentLength} chars</p>
+                    </div>
+                    <button class="delete-btn" onclick="deleteDocument('${doc.id}')">Delete</button>
+                </div>
+            `).join('');
+
+            countDiv.textContent = `Total: ${allDocs.length} document${allDocs.length !== 1 ? 's' : ''}`;
+        }
+
+        function deleteDocument(docId) {
+            if (!confirm('Are you sure you want to delete this document?')) return;
+            delete documents[docId];
+            saveDocuments();
+            loadDocuments();
+            updateDocCountBadge();
+            showStatus(document.getElementById('uploadStatus'), '✅ Document deleted', 'success');
+        }
+
+        function clearAllDocuments() {
+            if (!confirm('⚠️ This will delete ALL documents. Are you sure?')) return;
+            documents = {};
+            documentCounter = 0;
+            saveDocuments();
+            loadDocuments();
+            updateDocCountBadge();
+            showStatus(document.getElementById('uploadStatus'), '✅ All documents cleared', 'success');
+        }
+
+        function updateDocCountBadge() {
+            const count = Object.keys(documents).length;
+            document.getElementById('docCountBadge').textContent = `${count} Document${count !== 1 ? 's' : ''}`;
+        }
+
+        async function askQuestion() {
+            const query = document.getElementById('query').value.trim();
+            const resultsCount = parseInt(document.getElementById('resultsCount').value) || 5;
+            const statusDiv = document.getElementById('ragStatus');
+            const loading = document.getElementById('loading');
+            const answerBox = document.getElementById('answerBox');
+            const askBtn = document.getElementById('askBtn');
+
+            if (!query) {
+                showStatus(statusDiv, '❌ Please enter a question', 'error');
+                return;
+            }
+
+            const allDocs = Object.values(documents);
+            if (allDocs.length === 0) {
+                showStatus(statusDiv, '❌ No documents in database. Please add documents first.', 'error');
+                return;
+            }
+
+            try {
+                askBtn.disabled = true;
+                loading.classList.add('active');
+                answerBox.classList.remove('visible');
+                statusDiv.className = 'status';
+
+                const queryEmbedding = await generateEmbedding(query);
+                if (!queryEmbedding) throw new Error('Failed to generate query embedding');
+
+                const searchResults = allDocs
+                    .map(doc => ({ ...doc, similarity: cosineSimilarity(queryEmbedding, doc.embedding) }))
+                    .sort((a, b) => b.similarity - a.similarity)
+                    .slice(0, resultsCount);
+
+                if (searchResults.length === 0) {
+                    loading.classList.remove('active');
+                    showStatus(statusDiv, '⚠️ No relevant documents found', 'info');
+                    askBtn.disabled = false;
+                    return;
+                }
+
+                const answer = generateRAGAnswer(query, searchResults);
+                document.getElementById('answerText').textContent = answer;
+                
+                const sourceHTML = `
+                    <strong>📚 Retrieved Sources (${searchResults.length}):</strong>
+                    ${searchResults.map((result, idx) => `
+                        <div class="source-item">
+                            <strong>📄 Source ${idx + 1}: ${result.source}</strong>
+                            <small>Relevance: ${(result.similarity * 100).toFixed(1)}%</small>
+                            <small>${result.content.substring(0, 150)}...</small>
+                        </div>
+                    `).join('')}
+                `;
+                document.getElementById('sourceInfo').innerHTML = sourceHTML;
+                
+                answerBox.classList.add('visible');
+                showStatus(statusDiv, '✅ Answer generated based on your documents', 'success');
+            } catch (error) {
+                showStatus(statusDiv, `❌ Error: ${error.message}`, 'error');
+            } finally {
+                loading.classList.remove('active');
+                askBtn.disabled = false;
+            }
+        }
+
+        function generateRAGAnswer(query, searchResults) {
+            const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            const documentTexts = searchResults.map(r => r.content.toLowerCase());
+            
+            const relevantSentences = [];
+            const allSentences = documentTexts.flatMap(text => 
+                text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0)
+            );
+
+            for (const sentence of allSentences) {
+                const matchCount = queryWords.filter(word => sentence.includes(word)).length;
+                if (matchCount > 0) {
+                    relevantSentences.push({
+                        text: sentence.charAt(0).toUpperCase() + sentence.slice(1),
+                        matches: matchCount
+                    });
+                }
+            }
+
+            relevantSentences.sort((a, b) => b.matches - a.matches);
+
+            if (relevantSentences.length >= 2) {
+                return `Based on the retrieved documents:\n\n${relevantSentences.slice(0, 3).map(s => '• ' + s.text).join('\n\n')}`;
+            } else if (searchResults[0]) {
+                return `Based on the retrieved documents:\n\n${searchResults[0].content.substring(0, 400)}...`;
+            } else {
+                return "I found relevant documents but couldn't generate a specific answer. Please review the sources below.";
+            }
+        }
+
+        function exportData() {
+            const allDocs = Object.values(documents);
+            const exportData = {
+                version: '1.0',
+                exportedAt: new Date().toISOString(),
+                documentCount: allDocs.length,
+                documents: allDocs.map(doc => ({
+                    id: doc.id,
+                    content: doc.content,
+                    source: doc.source,
+                    createdAt: doc.createdAt
+                }))
+            };
+
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `rag-export-${Date.now()}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        const fileUploadBox = document.getElementById('fileUploadBox');
+        const fileInput = document.getElementById('fileInput');
+
+        fileUploadBox.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            document.getElementById('fileUploadBox').classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            document.getElementById('fileUploadBox').classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            document.getElementById('fileUploadBox').classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        }
+
+        async function handleFiles(files) {
+            const statusDiv = document.getElementById('uploadStatus');
+            
+            for (let file of files) {
+                try {
+                    const text = await file.text();
+                    document.getElementById('docContent').value = text;
+                    document.getElementById('docSource').value = file.name.replace(/\.[^/.]+$/, '');
+                    showStatus(statusDiv, `✅ File "${file.name}" loaded. Click "Add to Database" to save.`, 'success');
+                    switchTab('upload');
+                } catch (error) {
+                    showStatus(statusDiv, `❌ Error reading file: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        async function initializeApp() {
+            const initButton = document.getElementById('initButton');
+            const initProgress = document.getElementById('initProgress');
+            const initMessage = document.getElementById('initMessage');
+            const initProgressBar = document.getElementById('initProgressBar');
+            const initDetails = document.getElementById('initDetails');
+
+            initButton.disabled = true;
+            initProgress.style.display = 'block';
+
+            try {
+                initMessage.textContent = '⏳ Loading embedding model...';
+                initDetails.textContent = 'This may take 30-60 seconds on first run';
+                
+                const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0');
+                
+                extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+                    progress_callback: (p) => {
+                        const progress = Math.min(90, p.progress * 100);
+                        initProgressBar.style.width = progress + '%';
+                        initDetails.textContent = `Loading: ${Math.round(progress)}%`;
+                    }
+                });
+
+                initProgressBar.style.width = '100%';
+                initMessage.textContent = '✅ Model loaded successfully!';
+                initDetails.textContent = 'Initializing database...';
+                
+                loadStoredDocuments();
+                
+                setTimeout(() => {
+                    document.getElementById('initScreen').style.display = 'none';
+                    document.getElementById('mainApp').style.display = 'block';
+                    loadDocuments();
+                    updateDocCountBadge();
+                }, 500);
+
+            } catch (error) {
+                initMessage.textContent = '❌ Error loading model';
+                initDetails.textContent = error.message;
+                console.error('Initialization error:', error);
+                initButton.disabled = false;
+            }
+        }
+
+        window.addEventListener('load', () => {
+            loadStoredDocuments();
+        });
+    </script>
+</body>
+</html>
