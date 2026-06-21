@@ -539,7 +539,7 @@
         <div class="init-card">
             <h2>🚀 PDF RAG Chat</h2>
             <p>This app loads an AI embedding model entirely in your browser — no data leaves your machine.</p>
-            <p style="font-size:0.85em; color:#666;">First-time setup downloads ~23 MB (cached afterwards).</p>
+            <p style="font-size:0.85em; color:#999;">First-time setup downloads ~23 MB (cached afterwards).</p>
             <button class="btn-primary" id="initBtn" onclick="initApp()" style="margin-top:8px; width:100%; padding:12px;">
                 ⚡ Load Model & Start
             </button>
@@ -559,6 +559,22 @@
     </script>
 
     <script>
+        // ─────────────────────────────────────────────────────────────────────────
+        // Constants
+        // ─────────────────────────────────────────────────────────────────────────
+        // Small value added to the denominator to prevent division by zero
+        const COSINE_EPSILON       = 1e-10;
+        // Chunks shorter than this are considered noise and discarded
+        const MIN_CHUNK_LENGTH     = 30;
+        // Query words shorter than this (e.g. "a", "is") are ignored
+        const MIN_QUERY_WORD_LENGTH = 2;
+        // Sentences shorter than this are likely fragments and are skipped
+        const MIN_SENTENCE_LENGTH  = 20;
+        // Maximum number of sentences assembled into the final answer
+        const MAX_ANSWER_SENTENCES = 5;
+        // Character limit for the fallback answer when no sentences match
+        const FALLBACK_TEXT_LENGTH = 400;
+
         // ─────────────────────────────────────────────────────────────────────────
         // State
         // ─────────────────────────────────────────────────────────────────────────
@@ -606,7 +622,8 @@
                 document.getElementById('sendBtn').disabled = false;
 
             } catch (err) {
-                progressLabel.textContent = '❌ Failed: ' + err.message;
+                progressLabel.textContent =
+                    '❌ Failed to load model. Check your internet connection and that your browser supports ES modules. (' + err.message + ')';
                 btn.disabled = false;
                 console.error(err);
             }
@@ -627,7 +644,7 @@
                 normA += a[i] * a[i];
                 normB += b[i] * b[i];
             }
-            return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
+            return dot / (Math.sqrt(normA) * Math.sqrt(normB) + COSINE_EPSILON);
         }
 
         // ─────────────────────────────────────────────────────────────────────────
@@ -639,7 +656,7 @@
             while (start < text.length) {
                 const end = Math.min(start + chunkSize, text.length);
                 const chunk = text.slice(start, end).trim();
-                if (chunk.length > 30) chunks.push(chunk);
+                if (chunk.length > MIN_CHUNK_LENGTH) chunks.push(chunk);
                 start += chunkSize - overlap;
             }
             return chunks;
@@ -739,8 +756,6 @@
         // ─────────────────────────────────────────────────────────────────────────
         // Document list UI
         // ─────────────────────────────────────────────────────────────────────────
-        const docMap = {}; // name → chunk indices range
-
         function addDocToList(name, chunkCount) {
             const list = document.getElementById('docList');
             // Remove empty-docs placeholder
@@ -750,14 +765,34 @@
             const item = document.createElement('div');
             item.className = 'doc-item';
             item.dataset.name = name;
-            item.innerHTML = `
-                <span class="doc-icon">📄</span>
-                <div class="doc-info">
-                    <div class="doc-name">${escHtml(name)}</div>
-                    <div class="doc-meta">${chunkCount} chunk${chunkCount !== 1 ? 's' : ''} indexed</div>
-                </div>
-                <button class="remove-btn" onclick="removeDoc('${escHtml(name)}')" title="Remove">✕</button>
-            `;
+
+            const icon = document.createElement('span');
+            icon.className = 'doc-icon';
+            icon.textContent = '📄';
+
+            const info = document.createElement('div');
+            info.className = 'doc-info';
+
+            const docName = document.createElement('div');
+            docName.className = 'doc-name';
+            docName.textContent = name;
+
+            const docMeta = document.createElement('div');
+            docMeta.className = 'doc-meta';
+            docMeta.textContent = `${chunkCount} chunk${chunkCount !== 1 ? 's' : ''} indexed`;
+
+            info.appendChild(docName);
+            info.appendChild(docMeta);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-btn';
+            removeBtn.title = 'Remove';
+            removeBtn.textContent = '✕';
+            removeBtn.addEventListener('click', () => removeDoc(name));
+
+            item.appendChild(icon);
+            item.appendChild(info);
+            item.appendChild(removeBtn);
             list.appendChild(item);
         }
 
@@ -766,13 +801,22 @@
             const item = document.querySelector(`.doc-item[data-name="${CSS.escape(name)}"]`);
             if (item) item.remove();
             if (document.getElementById('docList').children.length === 0) {
-                document.getElementById('docList').innerHTML = '<div class="empty-docs">No PDFs uploaded yet</div>';
+                showEmptyDocList();
             }
+        }
+
+        function showEmptyDocList() {
+            const list = document.getElementById('docList');
+            list.textContent = '';
+            const placeholder = document.createElement('div');
+            placeholder.className = 'empty-docs';
+            placeholder.textContent = 'No PDFs uploaded yet';
+            list.appendChild(placeholder);
         }
 
         function clearAllDocs() {
             knowledgeChunks = [];
-            document.getElementById('docList').innerHTML = '<div class="empty-docs">No PDFs uploaded yet</div>';
+            showEmptyDocList();
             showUploadStatus('🗑️ All documents cleared', 'info');
         }
 
@@ -783,10 +827,6 @@
             if (type === 'success') {
                 setTimeout(() => { el.className = 'status-msg'; }, 5000);
             }
-        }
-
-        function escHtml(str) {
-            return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
         // ─────────────────────────────────────────────────────────────────────────
@@ -804,13 +844,16 @@
             if (context.length === 0) return "I couldn't find relevant information in the uploaded documents.";
 
             // Extract sentences that are most relevant to the query
-            const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > MIN_QUERY_WORD_LENGTH);
 
             const sentences = context.flatMap(chunk =>
+                // Split on whitespace that follows sentence-ending punctuation.
+                // Using a simple character-class split avoids lookbehind (unsupported
+                // in older Safari) and the reconstruction complexity it requires.
                 chunk.text
-                    .split(/(?<=[.!?])\s+/)
+                    .split(/[.!?]\s+/)
                     .map(s => s.trim())
-                    .filter(s => s.length > 20)
+                    .filter(s => s.length > MIN_SENTENCE_LENGTH)
                     .map(s => ({ sentence: s, source: chunk.source, score: chunk.score }))
             );
 
@@ -823,11 +866,12 @@
 
             scored.sort((a, b) => (b.keywordScore - a.keywordScore) || (b.score - a.score));
 
-            const topSentences = scored.slice(0, 5).map(s => s.sentence);
+            const topSentences = scored.slice(0, MAX_ANSWER_SENTENCES).map(s => s.sentence);
 
             if (topSentences.length === 0) {
                 // Fallback: return the start of the most relevant chunk
-                return context[0].text.slice(0, 400) + (context[0].text.length > 400 ? '…' : '');
+                return context[0].text.slice(0, FALLBACK_TEXT_LENGTH) +
+                    (context[0].text.length > FALLBACK_TEXT_LENGTH ? '…' : '');
             }
 
             return topSentences.join(' ');
@@ -853,8 +897,18 @@
             if (sources && sources.length > 0) {
                 const srcDiv = document.createElement('div');
                 srcDiv.className = 'sources';
-                srcDiv.innerHTML = `<strong>📚 Sources (${sources.length}):</strong>` +
-                    sources.map(s => `<div class="source-item">📄 ${escHtml(s.source)} — relevance ${(s.score * 100).toFixed(1)}%</div>`).join('');
+
+                const heading = document.createElement('strong');
+                heading.textContent = `📚 Sources (${sources.length}):`;
+                srcDiv.appendChild(heading);
+
+                for (const s of sources) {
+                    const sourceItem = document.createElement('div');
+                    sourceItem.className = 'source-item';
+                    sourceItem.textContent = `📄 ${s.source} — relevance ${(s.score * 100).toFixed(1)}%`;
+                    srcDiv.appendChild(sourceItem);
+                }
+
                 bubble.appendChild(srcDiv);
             }
 
@@ -877,7 +931,15 @@
 
             const bubble = document.createElement('div');
             bubble.className = 'msg-bubble';
-            bubble.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
+
+            const typingIndicator = document.createElement('div');
+            typingIndicator.className = 'typing-indicator';
+            for (let i = 0; i < 3; i++) {
+                const dot = document.createElement('div');
+                dot.className = 'typing-dot';
+                typingIndicator.appendChild(dot);
+            }
+            bubble.appendChild(typingIndicator);
 
             msgDiv.appendChild(avatar);
             msgDiv.appendChild(bubble);
@@ -939,13 +1001,22 @@
         }
 
         function clearChat() {
-            document.getElementById('chatMessages').innerHTML = `
-                <div class="msg bot">
-                    <div class="msg-avatar">🤖</div>
-                    <div class="msg-bubble">
-                        Chat cleared. Upload PDF documents and ask me anything about their contents.
-                    </div>
-                </div>`;
+            const container = document.getElementById('chatMessages');
+            container.textContent = '';
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'msg bot';
+
+            const avatar = document.createElement('div');
+            avatar.className = 'msg-avatar';
+            avatar.textContent = '🤖';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'msg-bubble';
+            bubble.textContent = 'Chat cleared. Upload PDF documents and ask me anything about their contents.';
+
+            msgDiv.appendChild(avatar);
+            msgDiv.appendChild(bubble);
+            container.appendChild(msgDiv);
         }
     </script>
 </body>
