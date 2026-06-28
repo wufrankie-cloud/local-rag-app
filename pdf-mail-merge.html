@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Mail Merge Designer</title>
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- QR Code (Promise-based browser build) -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <!-- jsPDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg:         #1a1a2e;
+            --surface:    #16213e;
+            --surface2:   #0f3460;
+            --accent:     #e94560;
+            --accent2:    #533483;
+            --text:       #e0e0e0;
+            --muted:      #888;
+            --border:     #2a3a5e;
+            --success:    #4caf50;
+            --warning:    #ff9800;
+            --obj-border: #6366f1;
+        }
+
+        html, body {
+            height: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--bg) 0%, var(--surface) 50%, var(--surface2) 100%);
+            color: var(--text);
+        }
+
+        body { display: flex; flex-direction: column; min-height: 100vh; }
+
+        /* ───── Header ───────────────────────────────────────── */
+        header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 10px 18px;
+            background: rgba(0,0,0,.35);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        header h1 {
+            font-size: 1.35em;
+            background: linear-gradient(90deg, #e94560, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        header p { font-size: .8em; color: var(--muted); }
+
+        /* ───── Toolbar ──────────────────────────────────────── */
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: rgba(0,0,0,.2);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .toolbar-sep { width: 1px; height: 26px; background: var(--border); margin: 0 3px; }
+
+        /* ───── Buttons ──────────────────────────────────────── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 13px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: .82em;
+            font-family: inherit;
+            transition: background .18s, opacity .18s;
+            white-space: nowrap;
+            color: var(--text);
+            background: var(--surface2);
+        }
+        .btn:hover:not(:disabled) { filter: brightness(1.2); }
+        .btn:disabled { opacity: .38; cursor: not-allowed; }
+        .btn-primary  { background: var(--accent);  border-color: var(--accent);  color: #fff; }
+        .btn-success  { background: var(--success); border-color: var(--success); color: #fff; }
+        .btn-accent   { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+        label.btn { cursor: pointer; }
+
+        /* ───── Merge preview bar ────────────────────────────── */
+        .merge-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 14px;
+            background: rgba(83,52,131,.45);
+            border-bottom: 1px solid #533483;
+            flex-shrink: 0;
+        }
+        .merge-bar.hidden { display: none; }
+        .merge-badge {
+            background: var(--accent2);
+            color: #fff;
+            font-size: .72em;
+            padding: 2px 9px;
+            border-radius: 12px;
+            font-weight: 700;
+            letter-spacing: .05em;
+        }
+        .merge-hint { color: #bbb; font-size: .78em; margin-left: 6px; }
+
+        /* ───── Main layout ──────────────────────────────────── */
+        .main-area {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        /* ───── Thumbnails ───────────────────────────────────── */
+        .thumbnails-panel {
+            width: 108px;
+            min-width: 88px;
+            background: rgba(0,0,0,.22);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 8px 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            flex-shrink: 0;
+        }
+        .thumbs-empty { font-size: .72em; color: var(--muted); text-align: center; padding: 8px 4px; }
+        .thumb {
+            cursor: pointer;
+            border: 2px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            text-align: center;
+            transition: border-color .18s;
+        }
+        .thumb:hover  { border-color: #a855f7; }
+        .thumb.active { border-color: var(--accent); }
+        .thumb img    { width: 100%; display: block; }
+        .thumb span   { font-size: .7em; color: var(--muted); padding: 1px 0; display: block; }
+
+        /* ───── Viewer ───────────────────────────────────────── */
+        .viewer-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-width: 0;
+        }
+        .page-nav {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 6px;
+            background: rgba(0,0,0,.15);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .btn-nav {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            width: 28px; height: 28px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            line-height: 1;
+        }
+        .btn-nav:hover:not(:disabled) { background: var(--accent); }
+        .btn-nav:disabled { opacity: .3; cursor: not-allowed; }
+        .page-info-label { font-size: .88em; min-width: 130px; text-align: center; }
+
+        .viewer-scroll {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .viewer-container {
+            position: relative;
+            display: inline-block;
+            line-height: 0;
+            box-shadow: 0 8px 32px rgba(0,0,0,.55);
+            border: 1px solid var(--border);
+            max-width: 100%;
+        }
+        .viewer-container img#viewerImage {
+            display: block;
+            max-width: min(100%, 820px);
+            height: auto;
+        }
+        .viewer-placeholder {
+            width: 580px; max-width: 100%;
+            height: 760px;
+            background: #fff;
+            opacity: .06;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* overlay must cover exactly the img */
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none; /* children enable their own */
+        }
+
+        /* ───── Text / QR objects ────────────────────────────── */
+        .text-object {
+            position: absolute;
+            pointer-events: all;
+            background: rgba(255,255,255,.93);
+            border: 2px solid var(--obj-border);
+            border-radius: 6px;
+            min-width: 110px;
+            font-size: 12px;
+            color: #111;
+            user-select: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,.35);
+            z-index: 10;
+        }
+        .text-object.selected    { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(233,69,96,.35); }
+        .text-object.dragging    { opacity: .82; z-index: 100; cursor: grabbing; }
+
+        .obj-header {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            padding: 3px 6px;
+            background: var(--obj-border);
+            color: #fff;
+            border-radius: 4px 4px 0 0;
+            font-size: 11px;
+        }
+        .text-object.selected .obj-header { background: var(--accent); }
+
+        .drag-handle {
+            cursor: grab;
+            font-size: 13px;
+            line-height: 1;
+            flex-shrink: 0;
+            padding: 0 2px;
+        }
+        .drag-handle:active { cursor: grabbing; }
+        .type-label {
+            font-weight: 700;
+            font-size: 10px;
+            background: rgba(255,255,255,.18);
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+        .hdr-spacer { flex: 1; }
+        .btn-obj {
+            background: rgba(255,255,255,.15);
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        .btn-obj:hover { background: rgba(255,255,255,.32); }
+        .btn-obj-del:hover { background: rgba(220,50,50,.65); }
+
+        .obj-content { padding: 5px 7px; }
+
+        .obj-text-input {
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            padding: 3px 6px;
+            font-size: 12px;
+            width: 148px;
+            background: #fff;
+            color: #111;
+            outline: none;
+        }
+        .obj-text-input:focus { border-color: #6366f1; }
+
+        .obj-display-text {
+            display: block;
+            max-width: 180px;
+            word-break: break-word;
+            white-space: pre-wrap;
+        }
+
+        .qr-img { display: block; }
+
+        .qr-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 4px;
+            font-size: 12px;
+            color: #333;
+        }
+        .qr-size-lbl { min-width: 36px; text-align: center; font-size: 11px; }
+
+        /* ───── Properties panel ─────────────────────────────── */
+        .properties-panel {
+            width: 215px;
+            min-width: 195px;
+            background: rgba(0,0,0,.2);
+            border-left: 1px solid var(--border);
+            padding: 12px 10px;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        .properties-panel h3 {
+            font-size: .82em;
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            color: var(--muted);
+            margin-bottom: 11px;
+            padding-bottom: 7px;
+            border-bottom: 1px solid var(--border);
+        }
+        .prop-row { margin-bottom: 9px; }
+        .prop-row label { display: block; font-size: .74em; color: var(--muted); margin-bottom: 3px; }
+        .prop-row .val  { font-size: .84em; }
+        .prop-input {
+            width: 100%;
+            padding: 4px 8px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: .83em;
+            font-family: inherit;
+        }
+        .prop-input:focus { outline: none; border-color: var(--accent); }
+        input[type="color"].prop-input { padding: 2px; height: 30px; cursor: pointer; }
+        .prop-hint {
+            font-size: .72em;
+            color: var(--muted);
+            line-height: 1.5;
+            margin-top: 10px;
+            padding: 8px;
+            background: rgba(255,255,255,.04);
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+        .prop-hint code { color: #e94560; }
+
+        /* ───── Status bar ───────────────────────────────────── */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 16px;
+            background: rgba(0,0,0,.32);
+            border-top: 1px solid var(--border);
+            font-size: .77em;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+
+        /* ───── Scrollbars ───────────────────────────────────── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,.1); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+    </style>
+</head>
+<body>
+
+<!-- ══ Header ══════════════════════════════════════════════════ -->
+<header>
+    <div>
+        <h1>📄 PDF Mail Merge Designer</h1>
+        <p>Upload a PDF · Design templates · Merge data · Download PDF</p>
+    </div>
+</header>
+
+<!-- ══ Toolbar ═════════════════════════════════════════════════ -->
+<div class="toolbar">
+    <!-- Upload -->
+    <label class="btn btn-primary" for="pdfInput" title="Upload a PDF document to convert to images">
+        📁 Upload PDF
+        <input type="file" id="pdfInput" accept=".pdf" hidden>
+    </label>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- Design -->
+    <button id="btnAddText" class="btn" disabled title="Add a text / QR object to the current page">
+        ＋ Add Object
+    </button>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- Template -->
+    <button id="btnExport" class="btn btn-accent" disabled title="Export template + page images as JSON">
+        ⬇ Export Template
+    </button>
+    <label class="btn" for="templateInput" title="Import a previously exported JSON template">
+        ⬆ Import Template
+        <input type="file" id="templateInput" accept=".json" hidden>
+    </label>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- Merge -->
+    <label class="btn" for="mergeDataInput" title="Load a JSON array of merge-data records">
+        📊 Load Merge Data
+        <input type="file" id="mergeDataInput" accept=".json" hidden>
+    </label>
+    <button id="btnDownloadPDF" class="btn btn-success" disabled title="Download the merged PDF document">
+        ⬇ Download PDF
+    </button>
+</div>
+
+<!-- ══ Merge preview bar ════════════════════════════════════════ -->
+<div class="merge-bar hidden" id="mergeBar">
+    <span class="merge-badge">MERGE PREVIEW</span>
+    <button class="btn-nav" id="mergePrev" disabled>&#8592;</button>
+    <span id="mergeInfo" class="page-info-label">Record 1 of 0</span>
+    <button class="btn-nav" id="mergeNext" disabled>&#8594;</button>
+    <button class="btn" id="btnExitMerge" style="padding:2px 10px;font-size:.78em;margin-left:6px;">Exit Preview</button>
+    <span class="merge-hint">Design edits are disabled while previewing · use ⬇ Download PDF to export</span>
+</div>
+
+<!-- ══ Main area ════════════════════════════════════════════════ -->
+<div class="main-area">
+
+    <!-- Thumbnails -->
+    <div class="thumbnails-panel" id="thumbnails">
+        <p class="thumbs-empty">No pages loaded</p>
+    </div>
+
+    <!-- Viewer -->
+    <div class="viewer-panel">
+        <div class="page-nav">
+            <button class="btn-nav" id="btnPrev" disabled>&#8592;</button>
+            <span class="page-info-label" id="pageInfo">No document</span>
+            <button class="btn-nav" id="btnNext" disabled>&#8594;</button>
+        </div>
+        <div class="viewer-scroll">
+            <div class="viewer-container" id="viewerContainer">
+                <div class="viewer-placeholder" id="viewerPlaceholder"></div>
+                <img id="viewerImage" src="" alt="Page" style="display:none;">
+                <div class="overlay" id="overlay"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Properties -->
+    <div class="properties-panel">
+        <h3>Properties</h3>
+        <div id="propsContent">
+            <p style="font-size:.82em;color:var(--muted);">Select an object to edit its properties.</p>
+            <div class="prop-hint">
+                Use <code>{{fieldName}}</code> in text / QR content as a merge placeholder.
+                <br><br>
+                Merge-data JSON must be an array:<br>
+                <code>[{"name":"Alice"},{"name":"Bob"}]</code>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ══ Status bar ═══════════════════════════════════════════════ -->
+<div class="status-bar">
+    <span id="statusMsg">📂 Upload a PDF to get started</span>
+    <span id="mergeStatus"></span>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     JavaScript
+═══════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ── PDF.js worker ─────────────────────────────────────────────── */
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ── Application state ─────────────────────────────────────────── */
+const state = {
+    pages:         [],    // [{imageDataUrl, width, height}]
+    currentPage:   0,
+    pageObjects:   {},    // {pageIndex: [objectData, ...]}
+    templateName:  'template',
+    mergeData:     [],    // [{field: value, ...}]
+    mergeMode:     false,
+    currentRecord: 0,
+};
+
+let objCounter  = 0;
+let dragState   = null;   // active drag info
+
+/* ── DOM references ────────────────────────────────────────────── */
+const $pdfInput        = document.getElementById('pdfInput');
+const $templateInput   = document.getElementById('templateInput');
+const $mergeDataInput  = document.getElementById('mergeDataInput');
+const $btnAddText      = document.getElementById('btnAddText');
+const $btnExport       = document.getElementById('btnExport');
+const $btnDownloadPDF  = document.getElementById('btnDownloadPDF');
+const $btnPrev         = document.getElementById('btnPrev');
+const $btnNext         = document.getElementById('btnNext');
+const $pageInfo        = document.getElementById('pageInfo');
+const $viewerContainer = document.getElementById('viewerContainer');
+const $viewerImage     = document.getElementById('viewerImage');
+const $viewerPlaceholder = document.getElementById('viewerPlaceholder');
+const $overlay         = document.getElementById('overlay');
+const $thumbnails      = document.getElementById('thumbnails');
+const $statusMsg       = document.getElementById('statusMsg');
+const $mergeStatus     = document.getElementById('mergeStatus');
+const $propsContent    = document.getElementById('propsContent');
+const $mergeBar        = document.getElementById('mergeBar');
+const $mergeInfo       = document.getElementById('mergeInfo');
+const $mergePrev       = document.getElementById('mergePrev');
+const $mergeNext       = document.getElementById('mergeNext');
+const $btnExitMerge    = document.getElementById('btnExitMerge');
+
+/* ═══════════════════════════════════════════════════════════════
+   Utilities
+═══════════════════════════════════════════════════════════════ */
+function setStatus(msg)      { $statusMsg.textContent = msg; }
+function setMergeStatus(msg) { $mergeStatus.textContent = msg; }
+
+function escAttr(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;');
+}
+
+/** Replace {{field}} tokens in `text` using `record` values. */
+function applyMerge(text, record) {
+    if (!record) return text;
+    return text.replace(/\{\{(\w+)\}\}/g, (_, k) =>
+        Object.prototype.hasOwnProperty.call(record, k) ? record[k] : `{{${k}}}`
+    );
+}
+
+function enableDesignControls(on) {
+    $btnAddText.disabled  = !on;
+    $btnExport.disabled   = !on;
+    $btnDownloadPDF.disabled = !on;
+}
+
+function loadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload  = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+    });
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function yield_() { return new Promise(r => setTimeout(r, 0)); }
+
+/* ═══════════════════════════════════════════════════════════════
+   QR Code generation
+═══════════════════════════════════════════════════════════════ */
+async function generateQRDataUrl(text, size) {
+    try {
+        const t = (text || '').trim() || ' ';
+        return await QRCode.toDataURL(t, {
+            width: size,
+            margin: 1,
+            color: { dark: '#000000ff', light: '#ffffffff' },
+        });
+    } catch (err) {
+        console.warn('QR error:', err);
+        /* Return a grey placeholder canvas */
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#eeeeee'; ctx.fillRect(0, 0, size, size);
+        ctx.strokeStyle = '#aaaaaa'; ctx.strokeRect(1, 1, size - 2, size - 2);
+        ctx.fillStyle = '#888'; ctx.font = '11px Arial';
+        ctx.fillText('QR error', 6, size / 2);
+        return c.toDataURL();
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PDF Loading  (Upload PDF)
+═══════════════════════════════════════════════════════════════ */
+$pdfInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setStatus(`Loading "${file.name}"…`);
+    try {
+        const buf    = await file.arrayBuffer();
+        const pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+
+        state.pages        = [];
+        state.pageObjects  = {};
+        state.templateName = file.name.replace(/\.pdf$/i, '');
+        state.mergeMode    = false;
+
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+            setStatus(`Rendering page ${i} / ${pdfDoc.numPages}…`);
+            await yield_();
+
+            const page     = await pdfDoc.getPage(i);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas   = document.createElement('canvas');
+            canvas.width   = viewport.width;
+            canvas.height  = viewport.height;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+            state.pages.push({
+                imageDataUrl: canvas.toDataURL('image/jpeg', 0.92),
+                width:  viewport.width,
+                height: viewport.height,
+            });
+            state.pageObjects[i - 1] = [];
+        }
+
+        $mergeBar.classList.add('hidden');
+        renderThumbnails();
+        goToPage(0);
+        enableDesignControls(true);
+        setStatus(`✓ "${file.name}" — ${pdfDoc.numPages} page${pdfDoc.numPages > 1 ? 's' : ''}`);
+    } catch (err) {
+        setStatus(`✗ Error: ${err.message}`);
+        console.error(err);
+    }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   Thumbnails
+═══════════════════════════════════════════════════════════════ */
+function renderThumbnails() {
+    $thumbnails.innerHTML = '';
+    if (!state.pages.length) {
+        $thumbnails.innerHTML = '<p class="thumbs-empty">No pages loaded</p>';
+        return;
+    }
+    state.pages.forEach((page, i) => {
+        const div = document.createElement('div');
+        div.className = 'thumb' + (i === state.currentPage ? ' active' : '');
+
+        const img = document.createElement('img');
+        img.src = page.imageDataUrl;
+        img.alt = `Page ${i + 1}`;
+
+        const lbl = document.createElement('span');
+        lbl.textContent = i + 1;
+
+        div.append(img, lbl);
+        div.addEventListener('click', () => goToPage(i));
+        $thumbnails.appendChild(div);
+    });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Page navigation
+═══════════════════════════════════════════════════════════════ */
+function goToPage(index) {
+    if (index < 0 || index >= state.pages.length) return;
+    state.currentPage = index;
+
+    /* Show page image */
+    const page = state.pages[index];
+    $viewerImage.src = page.imageDataUrl;
+    $viewerImage.style.display = 'block';
+    $viewerPlaceholder.style.display = 'none';
+
+    $pageInfo.textContent = `Page ${index + 1} of ${state.pages.length}`;
+    $btnPrev.disabled = index === 0;
+    $btnNext.disabled = index === state.pages.length - 1;
+
+    /* Update thumbnail highlight */
+    document.querySelectorAll('.thumb').forEach((t, i) =>
+        t.classList.toggle('active', i === index));
+
+    /* Render objects (with merge data if in preview mode) */
+    const record = state.mergeMode ? (state.mergeData[state.currentRecord] || {}) : null;
+    renderPageObjects(record);
+}
+
+$btnPrev.addEventListener('click', () => goToPage(state.currentPage - 1));
+$btnNext.addEventListener('click', () => goToPage(state.currentPage + 1));
+
+/* ═══════════════════════════════════════════════════════════════
+   Object data helpers
+═══════════════════════════════════════════════════════════════ */
+function getPageObjects(pi) {
+    if (!state.pageObjects[pi]) state.pageObjects[pi] = [];
+    return state.pageObjects[pi];
+}
+
+function getObjectData(id) {
+    return getPageObjects(state.currentPage).find(o => o.id === id) || null;
+}
+
+function updateObjectData(id, patch) {
+    const o = getObjectData(id);
+    if (o) Object.assign(o, patch);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Add / Remove objects
+═══════════════════════════════════════════════════════════════ */
+function addObject() {
+    const id  = `obj_${++objCounter}`;
+    const obj = {
+        id,
+        type:     'text',
+        x:        12,          /* % of viewer container width  */
+        y:        12,          /* % of viewer container height */
+        text:     '{{field}}',
+        fontSize: 18,
+        color:    '#000000',
+        qrSize:   120,
+    };
+    getPageObjects(state.currentPage).push(obj);
+
+    const el = createObjectElement(obj, null);
+    $overlay.appendChild(el);
+    selectObject(id);
+    return obj;
+}
+
+function removeObject(id) {
+    const objs = getPageObjects(state.currentPage);
+    const idx  = objs.findIndex(o => o.id === id);
+    if (idx !== -1) objs.splice(idx, 1);
+
+    const el = document.getElementById(id);
+    if (el) el.remove();
+
+    if ($propsContent.dataset.objId === id) renderProperties(null);
+}
+
+$btnAddText.addEventListener('click', () => {
+    if (state.mergeMode || !state.pages.length) return;
+    addObject();
+    setStatus('Object added — drag to position, click to select');
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   Selection
+═══════════════════════════════════════════════════════════════ */
+function selectObject(id) {
+    document.querySelectorAll('.text-object').forEach(el =>
+        el.classList.remove('selected'));
+    if (id) {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('selected');
+        renderProperties(getObjectData(id));
+    } else {
+        renderProperties(null);
+    }
+}
+
+/* Click on bare overlay background deselects */
+$overlay.addEventListener('mousedown', (e) => {
+    if (e.target === $overlay) selectObject(null);
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   Create DOM element for an object
+═══════════════════════════════════════════════════════════════ */
+function createObjectElement(obj, mergeRecord) {
+    const isPreview = (mergeRecord !== null);
+
+    const div = document.createElement('div');
+    div.className = 'text-object';
+    div.id = obj.id;
+    div.style.left = obj.x + '%';
+    div.style.top  = obj.y + '%';
+
+    /* ── header bar ── */
+    const hdr = document.createElement('div');
+    hdr.className = 'obj-header';
+
+    const handle = document.createElement('span');
+    handle.className = 'drag-handle';
+    handle.textContent = '⠿';
+    handle.title = 'Drag to move';
+
+    const typeLbl = document.createElement('span');
+    typeLbl.className = 'type-label';
+    typeLbl.textContent = obj.type === 'qr' ? 'QR' : 'T';
+
+    const spacer = document.createElement('span');
+    spacer.className = 'hdr-spacer';
+
+    hdr.append(handle, typeLbl, spacer);
+
+    if (!isPreview) {
+        const btnToggle = document.createElement('button');
+        btnToggle.className = 'btn-obj';
+        btnToggle.textContent = obj.type === 'qr' ? '→Text' : '→QR';
+        btnToggle.title = 'Switch format';
+        btnToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            updateObjectData(obj.id, { type: obj.type === 'qr' ? 'text' : 'qr' });
+            const updated = getObjectData(obj.id);
+            const newEl   = createObjectElement(updated, null);
+            div.replaceWith(newEl);
+            selectObject(obj.id);
+        });
+
+        const btnDel = document.createElement('button');
+        btnDel.className = 'btn-obj btn-obj-del';
+        btnDel.textContent = '✕';
+        btnDel.title = 'Delete object';
+        btnDel.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeObject(obj.id);
+        });
+
+        hdr.append(btnToggle, btnDel);
+    }
+
+    /* ── content ── */
+    const content = document.createElement('div');
+    content.className = 'obj-content';
+
+    if (obj.type === 'text') {
+        if (isPreview) {
+            const span = document.createElement('span');
+            span.className = 'obj-display-text';
+            span.style.cssText = `font-size:${obj.fontSize}px;color:${obj.color};`;
+            span.textContent   = applyMerge(obj.text, mergeRecord);
+            content.appendChild(span);
+        } else {
+            const inp = document.createElement('input');
+            inp.type      = 'text';
+            inp.className = 'obj-text-input';
+            inp.value     = obj.text;
+            inp.placeholder = '{{field}} or plain text';
+            inp.addEventListener('click',  e => e.stopPropagation());
+            inp.addEventListener('input',  () => updateObjectData(obj.id, { text: inp.value }));
+            content.appendChild(inp);
+        }
+    } else {
+        /* QR mode */
+        const qrText = isPreview ? applyMerge(obj.text, mergeRecord) : obj.text;
+
+        const qrImg = document.createElement('img');
+        qrImg.className  = 'qr-img';
+        qrImg.style.cssText = `width:${obj.qrSize}px;height:${obj.qrSize}px;`;
+        content.appendChild(qrImg);
+
+        generateQRDataUrl(qrText, obj.qrSize).then(url => { qrImg.src = url; });
+
+        if (!isPreview) {
+            const ctrl = document.createElement('div');
+            ctrl.className = 'qr-controls';
+
+            const btnM = document.createElement('button');
+            btnM.className = 'btn-obj'; btnM.textContent = '−';
+
+            const sizeLbl = document.createElement('span');
+            sizeLbl.className = 'qr-size-lbl';
+            sizeLbl.textContent = obj.qrSize + 'px';
+
+            const btnP = document.createElement('button');
+            btnP.className = 'btn-obj'; btnP.textContent = '+';
+
+            const adjustQR = (delta) => {
+                const newSz = Math.min(400, Math.max(50, obj.qrSize + delta));
+                updateObjectData(obj.id, { qrSize: newSz });
+                qrImg.style.width = qrImg.style.height = newSz + 'px';
+                sizeLbl.textContent = newSz + 'px';
+                generateQRDataUrl(obj.text, newSz).then(u => { qrImg.src = u; });
+                renderProperties(getObjectData(obj.id));
+            };
+
+            btnM.addEventListener('click', e => { e.stopPropagation(); adjustQR(-10); });
+            btnP.addEventListener('click', e => { e.stopPropagation(); adjustQR(+10); });
+
+            ctrl.append(btnM, sizeLbl, btnP);
+            content.appendChild(ctrl);
+        }
+    }
+
+    div.append(hdr, content);
+
+    /* ── interaction (design mode only) ── */
+    if (!isPreview) {
+        div.addEventListener('mousedown', () => selectObject(obj.id));
+
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const cr  = $viewerContainer.getBoundingClientRect();
+            const er  = div.getBoundingClientRect();
+            dragState = {
+                el:        div,
+                objId:     obj.id,
+                offsetX:   e.clientX - er.left,
+                offsetY:   e.clientY - er.top,
+                containerRect: cr,
+            };
+            div.classList.add('dragging');
+            selectObject(obj.id);
+        });
+    }
+
+    return div;
+}
+
+/* ── Global mouse move / up for drag ── */
+document.addEventListener('mousemove', (e) => {
+    if (!dragState) return;
+    const { el, offsetX, offsetY, containerRect } = dragState;
+    const x = Math.max(0, Math.min(85, ((e.clientX - containerRect.left - offsetX) / containerRect.width)  * 100));
+    const y = Math.max(0, Math.min(85, ((e.clientY - containerRect.top  - offsetY) / containerRect.height) * 100));
+    el.style.left = x + '%';
+    el.style.top  = y + '%';
+});
+
+document.addEventListener('mouseup', () => {
+    if (!dragState) return;
+    const { el, objId } = dragState;
+    el.classList.remove('dragging');
+    updateObjectData(objId, {
+        x: parseFloat(el.style.left),
+        y: parseFloat(el.style.top),
+    });
+    renderProperties(getObjectData(objId));
+    dragState = null;
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   Render all objects for current page
+═══════════════════════════════════════════════════════════════ */
+function renderPageObjects(mergeRecord) {
+    $overlay.innerHTML = '';
+    getPageObjects(state.currentPage).forEach(obj => {
+        $overlay.appendChild(createObjectElement(obj, mergeRecord));
+    });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Properties panel
+═══════════════════════════════════════════════════════════════ */
+function renderProperties(obj) {
+    $propsContent.dataset.objId = obj ? obj.id : '';
+    if (!obj) {
+        $propsContent.innerHTML = `
+            <p style="font-size:.82em;color:var(--muted);">Select an object to edit its properties.</p>
+            <div class="prop-hint">
+                Use <code>{{fieldName}}</code> in text / QR content as a merge placeholder.
+                <br><br>
+                Merge-data JSON must be an array:<br>
+                <code>[{"name":"Alice"},{"name":"Bob"}]</code>
+            </div>`;
+        return;
+    }
+
+    const isQR = obj.type === 'qr';
+    $propsContent.innerHTML = `
+        <div class="prop-row">
+            <label>Type</label>
+            <span class="val">${isQR ? '🔳 QR Code' : '✏️ Text'}</span>
+        </div>
+        <div class="prop-row">
+            <label>Content / Template</label>
+            <input type="text" id="propText" value="${escAttr(obj.text)}" class="prop-input" placeholder="{{field}}">
+        </div>
+        ${!isQR ? `
+        <div class="prop-row">
+            <label>Font size (px)</label>
+            <input type="number" id="propFontSize" value="${obj.fontSize}" min="6" max="120" class="prop-input">
+        </div>
+        <div class="prop-row">
+            <label>Text colour</label>
+            <input type="color" id="propColor" value="${obj.color}" class="prop-input">
+        </div>` : `
+        <div class="prop-row">
+            <label>QR size (px)</label>
+            <span class="val">${obj.qrSize}px &nbsp;<small style="color:var(--muted)">(use ± on object)</small></span>
+        </div>`}
+        <div class="prop-row">
+            <label>Position</label>
+            <span class="val">X ${obj.x.toFixed(1)}% &nbsp; Y ${obj.y.toFixed(1)}%</span>
+        </div>
+        <div class="prop-hint">
+            <code>{{fieldName}}</code> will be replaced with the merge-data value for that field.
+        </div>`;
+
+    document.getElementById('propText').addEventListener('change', (e) => {
+        const val = e.target.value;
+        updateObjectData(obj.id, { text: val });
+        /* Sync the inline input / QR preview */
+        const el = document.getElementById(obj.id);
+        if (!el) return;
+        if (!isQR) {
+            const inp = el.querySelector('.obj-text-input');
+            if (inp) inp.value = val;
+        } else {
+            const qImg = el.querySelector('.qr-img');
+            if (qImg) generateQRDataUrl(val, obj.qrSize).then(u => { qImg.src = u; });
+        }
+    });
+
+    if (!isQR) {
+        document.getElementById('propFontSize').addEventListener('change', (e) => {
+            updateObjectData(obj.id, { fontSize: Math.max(6, parseInt(e.target.value) || 16) });
+        });
+        document.getElementById('propColor').addEventListener('input', (e) => {
+            updateObjectData(obj.id, { color: e.target.value });
+        });
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Build template JSON
+═══════════════════════════════════════════════════════════════ */
+function buildTemplateJSON() {
+    return {
+        name:      state.templateName,
+        version:   '1.0',
+        createdAt: new Date().toISOString(),
+        pages: state.pages.map((page, i) => ({
+            pageIndex:    i,
+            imageDataUrl: page.imageDataUrl,
+            width:        page.width,
+            height:       page.height,
+            objects:      (state.pageObjects[i] || []).map(o => ({ ...o })),
+        })),
+    };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Export template
+═══════════════════════════════════════════════════════════════ */
+$btnExport.addEventListener('click', () => {
+    const json = JSON.stringify(buildTemplateJSON(), null, 2);
+    downloadBlob(new Blob([json], { type: 'application/json' }), `${state.templateName}-template.json`);
+    setStatus(`✓ Template exported as "${state.templateName}-template.json"`);
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   Import template
+═══════════════════════════════════════════════════════════════ */
+$templateInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+        const tpl = JSON.parse(await file.text());
+        loadTemplate(tpl);
+        /* If the template bundle also contains merge data, load it */
+        if (Array.isArray(tpl.data) && tpl.data.length) {
+            state.mergeData = tpl.data;
+            setMergeStatus(`📊 ${tpl.data.length} records (from template)`);
+            $btnDownloadPDF.disabled = false;
+        }
+        setStatus(`✓ Template imported: "${tpl.name}"`);
+    } catch (err) {
+        setStatus(`✗ Import error: ${err.message}`);
+    }
+});
+
+function loadTemplate(tpl) {
+    state.templateName = tpl.name || 'Imported';
+    state.pages        = tpl.pages.map(p => ({
+        imageDataUrl: p.imageDataUrl,
+        width:        p.width,
+        height:       p.height,
+    }));
+    state.pageObjects = {};
+    tpl.pages.forEach(p => {
+        state.pageObjects[p.pageIndex] = (p.objects || []).map(o => ({ ...o }));
+        (p.objects || []).forEach(o => {
+            const n = parseInt((o.id || '').replace('obj_', ''));
+            if (!isNaN(n) && n > objCounter) objCounter = n;
+        });
+    });
+
+    state.mergeMode    = false;
+    state.currentPage  = 0;
+    $mergeBar.classList.add('hidden');
+
+    renderThumbnails();
+    goToPage(0);
+    enableDesignControls(true);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Load merge data
+═══════════════════════════════════════════════════════════════ */
+$mergeDataInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+        const data = JSON.parse(await file.text());
+        if (!Array.isArray(data)) {
+            setStatus('✗ Merge data must be a JSON array of objects.');
+            return;
+        }
+        state.mergeData = data;
+        $btnDownloadPDF.disabled = false;
+        setMergeStatus(`📊 ${data.length} record${data.length !== 1 ? 's' : ''} loaded`);
+
+        if (state.pages.length) {
+            enterMergePreview();
+            setStatus(`✓ Loaded ${data.length} merge record${data.length !== 1 ? 's' : ''} — previewing record 1`);
+        } else {
+            setStatus(`✓ ${data.length} merge record${data.length !== 1 ? 's' : ''} ready — import or upload a template to preview`);
+        }
+    } catch (err) {
+        setStatus(`✗ Merge-data error: ${err.message}`);
+    }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   Merge preview mode
+═══════════════════════════════════════════════════════════════ */
+function enterMergePreview() {
+    state.mergeMode    = true;
+    state.currentRecord = 0;
+    $mergeBar.classList.remove('hidden');
+    $btnAddText.disabled = true;
+    updateMergeNav();
+    goToPage(state.currentPage);
+}
+
+function exitMergePreview() {
+    state.mergeMode = false;
+    $mergeBar.classList.add('hidden');
+    $btnAddText.disabled = !state.pages.length;
+    goToPage(state.currentPage);
+}
+
+function updateMergeNav() {
+    const n = state.mergeData.length;
+    $mergeInfo.textContent = `Record ${state.currentRecord + 1} of ${n}`;
+    $mergePrev.disabled    = state.currentRecord === 0;
+    $mergeNext.disabled    = state.currentRecord >= n - 1;
+}
+
+$mergePrev.addEventListener('click', () => {
+    if (state.currentRecord > 0) {
+        state.currentRecord--;
+        updateMergeNav();
+        goToPage(state.currentPage);
+    }
+});
+$mergeNext.addEventListener('click', () => {
+    if (state.currentRecord < state.mergeData.length - 1) {
+        state.currentRecord++;
+        updateMergeNav();
+        goToPage(state.currentPage);
+    }
+});
+$btnExitMerge.addEventListener('click', exitMergePreview);
+
+/* ═══════════════════════════════════════════════════════════════
+   Download merged PDF
+═══════════════════════════════════════════════════════════════ */
+$btnDownloadPDF.addEventListener('click', async () => {
+    if (!state.pages.length) {
+        setStatus('✗ No template loaded.');
+        return;
+    }
+
+    const { jsPDF }  = window.jspdf;
+    const records    = state.mergeData.length ? state.mergeData : [{}];
+    const firstPage  = state.pages[0];
+    const landscape  = firstPage.width > firstPage.height;
+    const total      = records.length * state.pages.length;
+    let   done       = 0;
+
+    setStatus('Generating merged PDF…');
+    $btnDownloadPDF.disabled = true;
+
+    try {
+        const doc = new jsPDF({
+            orientation: landscape ? 'landscape' : 'portrait',
+            unit:        'px',
+            format:      [firstPage.width, firstPage.height],
+            hotfixes:    ['px_scaling'],
+        });
+
+        let isFirstPdfPage = true;
+
+        for (let r = 0; r < records.length; r++) {
+            const record = records[r];
+
+            for (let p = 0; p < state.pages.length; p++) {
+                const page = state.pages[p];
+                const objs = state.pageObjects[p] || [];
+
+                /* Render page + objects to an off-screen canvas */
+                const canvas = document.createElement('canvas');
+                canvas.width  = page.width;
+                canvas.height = page.height;
+                const ctx = canvas.getContext('2d');
+
+                /* Background image */
+                ctx.drawImage(await loadImage(page.imageDataUrl), 0, 0);
+
+                /* Draw each object */
+                for (const obj of objs) {
+                    const merged = applyMerge(obj.text, record);
+                    const x      = (obj.x / 100) * page.width;
+                    const y      = (obj.y / 100) * page.height;
+
+                    if (obj.type === 'text') {
+                        const fs = obj.fontSize || 16;
+                        ctx.font      = `${fs}px Arial`;
+                        ctx.fillStyle = obj.color || '#000000';
+                        ctx.fillText(merged, x, y + fs);
+                    } else {
+                        const qrSz = obj.qrSize || 120;
+                        const url  = await generateQRDataUrl(merged, qrSz);
+                        if (url) ctx.drawImage(await loadImage(url), x, y, qrSz, qrSz);
+                    }
+                }
+
+                const imgData = canvas.toDataURL('image/jpeg', 0.92);
+
+                if (!isFirstPdfPage) {
+                    doc.addPage(
+                        [page.width, page.height],
+                        page.width > page.height ? 'landscape' : 'portrait'
+                    );
+                }
+                isFirstPdfPage = false;
+
+                doc.addImage(imgData, 'JPEG', 0, 0, page.width, page.height);
+
+                done++;
+                setStatus(`Generating PDF… ${done} / ${total} page${total !== 1 ? 's' : ''}`);
+                await yield_();
+            }
+        }
+
+        doc.save(`${state.templateName}-merged.pdf`);
+        setStatus(`✓ Downloaded "${state.templateName}-merged.pdf" (${records.length} record${records.length !== 1 ? 's' : ''}, ${total} page${total !== 1 ? 's' : ''})`);
+    } catch (err) {
+        setStatus(`✗ PDF error: ${err.message}`);
+        console.error(err);
+    } finally {
+        $btnDownloadPDF.disabled = false;
+    }
+});
+</script>
+</body>
+</html>
