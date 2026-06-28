@@ -574,7 +574,8 @@ function downloadBlob(blob, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-function yield_() { return new Promise(r => setTimeout(r, 0)); }
+/** Yield control back to the browser event loop (keeps UI responsive during loops). */
+function yieldToUI() { return new Promise(r => setTimeout(r, 0)); }
 
 /* ═══════════════════════════════════════════════════════════════
    QR Code generation
@@ -621,7 +622,7 @@ $pdfInput.addEventListener('change', async (e) => {
 
         for (let i = 1; i <= pdfDoc.numPages; i++) {
             setStatus(`Rendering page ${i} / ${pdfDoc.numPages}…`);
-            await yield_();
+            await yieldToUI();
 
             const page     = await pdfDoc.getPage(i);
             const viewport = page.getViewport({ scale: 1.5 });
@@ -926,12 +927,15 @@ function createObjectElement(obj, mergeRecord) {
     return div;
 }
 
+/* Maximum % position so objects stay at least partially visible inside the container */
+const MAX_OBJ_POS_PCT = 85;
+
 /* ── Global mouse move / up for drag ── */
 document.addEventListener('mousemove', (e) => {
     if (!dragState) return;
     const { el, offsetX, offsetY, containerRect } = dragState;
-    const x = Math.max(0, Math.min(85, ((e.clientX - containerRect.left - offsetX) / containerRect.width)  * 100));
-    const y = Math.max(0, Math.min(85, ((e.clientY - containerRect.top  - offsetY) / containerRect.height) * 100));
+    const x = Math.max(0, Math.min(MAX_OBJ_POS_PCT, ((e.clientX - containerRect.left - offsetX) / containerRect.width)  * 100));
+    const y = Math.max(0, Math.min(MAX_OBJ_POS_PCT, ((e.clientY - containerRect.top  - offsetY) / containerRect.height) * 100));
     el.style.left = x + '%';
     el.style.top  = y + '%';
 });
@@ -991,7 +995,7 @@ function renderProperties(obj) {
             <input type="number" id="propFontSize" value="${obj.fontSize}" min="6" max="120" class="prop-input">
         </div>
         <div class="prop-row">
-            <label>Text colour</label>
+            <label>Text color</label>
             <input type="color" id="propColor" value="${obj.color}" class="prop-input">
         </div>` : `
         <div class="prop-row">
@@ -1091,8 +1095,9 @@ function loadTemplate(tpl) {
     tpl.pages.forEach(p => {
         state.pageObjects[p.pageIndex] = (p.objects || []).map(o => ({ ...o }));
         (p.objects || []).forEach(o => {
-            const n = parseInt((o.id || '').replace('obj_', ''));
-            if (!isNaN(n) && n > objCounter) objCounter = n;
+            /* Sync objCounter so new objects don't collide with imported IDs */
+            const n = parseInt((o.id || '').replace(/^obj_/, ''));
+            if (Number.isFinite(n) && n > objCounter) objCounter = n;
         });
     });
 
@@ -1230,6 +1235,8 @@ $btnDownloadPDF.addEventListener('click', async () => {
                         const fs = obj.fontSize || 16;
                         ctx.font      = `${fs}px Arial`;
                         ctx.fillStyle = obj.color || '#000000';
+                        /* Canvas fillText uses the text baseline as the y anchor;
+                           add fontSize so the top of the text aligns with the stored y position. */
                         ctx.fillText(merged, x, y + fs);
                     } else {
                         const qrSz = obj.qrSize || 120;
@@ -1252,7 +1259,7 @@ $btnDownloadPDF.addEventListener('click', async () => {
 
                 done++;
                 setStatus(`Generating PDF… ${done} / ${total} page${total !== 1 ? 's' : ''}`);
-                await yield_();
+                await yieldToUI();
             }
         }
 
