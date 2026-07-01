@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storage Manager - LocalStorage & IndexedDB</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+            color: #e5e7eb;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1 { margin-bottom: 8px; font-size: 2rem; }
+        .subtitle { color: #9ca3af; margin-bottom: 20px; }
+        .panel {
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 12px;
+            padding: 18px;
+            margin-bottom: 16px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        label { display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem; }
+        select, input[type="text"], textarea, button {
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid #4b5563;
+            background: #111827;
+            color: #f9fafb;
+            padding: 10px;
+            font-size: 0.95rem;
+        }
+        textarea {
+            min-height: 280px;
+            resize: vertical;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            line-height: 1.4;
+        }
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        button {
+            background: #2563eb;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:hover { background: #1d4ed8; }
+        .secondary { background: #4b5563; }
+        .secondary:hover { background: #374151; }
+        .danger { background: #dc2626; }
+        .danger:hover { background: #b91c1c; }
+        .status {
+            margin-top: 10px;
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: none;
+            font-size: 0.9rem;
+        }
+        .status.show { display: block; }
+        .status.success { background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4); }
+        .status.error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); }
+        .status.info { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.4); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Storage Manager</h1>
+        <p class="subtitle">Manage LocalStorage and IndexedDB entries by key, with JSON validation and import/export support.</p>
+
+        <div class="panel">
+            <div class="grid">
+                <div>
+                    <label for="storageType">Storage Type</label>
+                    <select id="storageType">
+                        <option value="localStorage">LocalStorage</option>
+                        <option value="indexedDB">IndexedDB</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="dbName">IndexedDB Name</label>
+                    <input id="dbName" type="text" value="storage-manager-db" placeholder="Database name">
+                </div>
+                <div>
+                    <label for="storeName">Object Store Name</label>
+                    <input id="storeName" type="text" value="kv" placeholder="Store name">
+                </div>
+                <div>
+                    <label for="keyInput">Key</label>
+                    <input id="keyInput" type="text" placeholder="Enter key">
+                </div>
+            </div>
+
+            <div>
+                <label for="keySelect">Existing Keys</label>
+                <select id="keySelect">
+                    <option value="">(No key selected)</option>
+                </select>
+            </div>
+
+            <div class="button-grid">
+                <button type="button" onclick="listKeys()">Refresh Keys</button>
+                <button type="button" class="secondary" onclick="loadByKey()">Load Key</button>
+                <button type="button" onclick="saveByKey()">Save Key</button>
+                <button type="button" class="danger" onclick="deleteByKey()">Delete Key</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <label for="valueInput">Value</label>
+            <textarea id="valueInput" placeholder="Enter plain text or JSON"></textarea>
+            <div class="button-grid">
+                <button type="button" class="secondary" onclick="formatJson()">Format JSON</button>
+                <button type="button" class="secondary" onclick="clearEditor()">Clear</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="button-grid">
+                <button type="button" class="secondary" onclick="exportAll()">Export (JSON)</button>
+                <button type="button" class="secondary" onclick="triggerImport()">Import (JSON)</button>
+            </div>
+            <input id="importFile" type="file" accept="application/json" style="display:none" />
+            <div id="status" class="status"></div>
+        </div>
+    </div>
+
+    <script>
+        const storageTypeEl = document.getElementById('storageType');
+        const dbNameEl = document.getElementById('dbName');
+        const storeNameEl = document.getElementById('storeName');
+        const keyInputEl = document.getElementById('keyInput');
+        const keySelectEl = document.getElementById('keySelect');
+        const valueInputEl = document.getElementById('valueInput');
+        const importFileEl = document.getElementById('importFile');
+        const statusEl = document.getElementById('status');
+
+        function showStatus(message, type = 'info') {
+            statusEl.textContent = message;
+            statusEl.className = `status show ${type}`;
+        }
+
+        function isIndexedDB() {
+            return storageTypeEl.value === 'indexedDB';
+        }
+
+        function toggleIndexedDBFields() {
+            const disabled = !isIndexedDB();
+            dbNameEl.disabled = disabled;
+            storeNameEl.disabled = disabled;
+        }
+
+        function openIndexedDB(dbName, version, onUpgrade) {
+            return new Promise((resolve, reject) => {
+                const request = version ? indexedDB.open(dbName, version) : indexedDB.open(dbName);
+                request.onupgradeneeded = (event) => {
+                    if (onUpgrade) {
+                        onUpgrade(request.result, event.oldVersion, event.newVersion);
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error('Failed to open IndexedDB.'));
+            });
+        }
+
+        async function ensureIndexedDbStore(dbName, storeName) {
+            let db = await openIndexedDB(dbName);
+            if (db.objectStoreNames.contains(storeName)) {
+                return db;
+            }
+
+            const newVersion = db.version + 1;
+            db.close();
+            db = await openIndexedDB(dbName, newVersion, (upgradeDb) => {
+                if (!upgradeDb.objectStoreNames.contains(storeName)) {
+                    upgradeDb.createObjectStore(storeName);
+                }
+            });
+            return db;
+        }
+
+        async function getIndexedDbStore(dbName, storeName, mode = 'readonly') {
+            const db = await ensureIndexedDbStore(dbName, storeName);
+            const tx = db.transaction(storeName, mode);
+            const store = tx.objectStore(storeName);
+            return { db, tx, store };
+        }
+
+        function wrapRequest(request) {
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error('IndexedDB request failed.'));
+            });
+        }
+
+        async function localStorageKeys() {
+            return Object.keys(localStorage).sort((a, b) => a.localeCompare(b));
+        }
+
+        async function indexedDbKeys(dbName, storeName) {
+            const { db, tx, store } = await getIndexedDbStore(dbName, storeName, 'readonly');
+            try {
+                const keys = await wrapRequest(store.getAllKeys());
+                await txDone(tx);
+                return keys.map(String).sort((a, b) => a.localeCompare(b));
+            } finally {
+                db.close();
+            }
+        }
+
+        function txDone(tx) {
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = () => resolve();
+                tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted.'));
+                tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed.'));
+            });
+        }
+
+        function getKeyFromUI() {
+            const selected = keySelectEl.value.trim();
+            const typed = keyInputEl.value.trim();
+            return typed || selected;
+        }
+
+        function normalizeInputValue(rawValue) {
+            const trimmed = rawValue.trim();
+            if (!trimmed) return rawValue;
+
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                try {
+                    const parsed = JSON.parse(trimmed);
+                    return JSON.stringify(parsed, null, 2);
+                } catch (error) {
+                    throw new Error(`Invalid JSON structure: ${error.message}`);
+                }
+            }
+
+            return rawValue;
+        }
+
+        function prettifyIfJson(rawValue) {
+            if (typeof rawValue !== 'string') {
+                return JSON.stringify(rawValue, null, 2);
+            }
+
+            const trimmed = rawValue.trim();
+            if (!trimmed) return rawValue;
+
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                try {
+                    return JSON.stringify(JSON.parse(trimmed), null, 2);
+                } catch {
+                    return rawValue;
+                }
+            }
+            return rawValue;
+        }
+
+        async function listKeys() {
+            try {
+                const keys = isIndexedDB()
+                    ? await indexedDbKeys(dbNameEl.value.trim(), storeNameEl.value.trim())
+                    : await localStorageKeys();
+
+                keySelectEl.innerHTML = '<option value="">(No key selected)</option>' +
+                    keys.map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`).join('');
+                showStatus(`Loaded ${keys.length} key(s).`, 'success');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        }
+
+        async function loadByKey() {
+            const key = getKeyFromUI();
+            if (!key) {
+                showStatus('Please provide or select a key.', 'error');
+                return;
+            }
+
+            try {
+                let value;
+                if (isIndexedDB()) {
+                    const { db, tx, store } = await getIndexedDbStore(dbNameEl.value.trim(), storeNameEl.value.trim(), 'readonly');
+                    try {
+                        value = await wrapRequest(store.get(key));
+                        await txDone(tx);
+                    } finally {
+                        db.close();
+                    }
+                } else {
+                    value = localStorage.getItem(key);
+                }
+
+                if (value === undefined || value === null) {
+                    showStatus('No value found for this key.', 'info');
+                    valueInputEl.value = '';
+                    return;
+                }
+
+                valueInputEl.value = prettifyIfJson(value);
+                keyInputEl.value = key;
+                showStatus('Value loaded.', 'success');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        }
+
+        async function saveByKey() {
+            const key = getKeyFromUI();
+            if (!key) {
+                showStatus('Please provide a key before saving.', 'error');
+                return;
+            }
+
+            try {
+                const normalizedValue = normalizeInputValue(valueInputEl.value);
+                valueInputEl.value = normalizedValue;
+
+                if (isIndexedDB()) {
+                    const { db, tx, store } = await getIndexedDbStore(dbNameEl.value.trim(), storeNameEl.value.trim(), 'readwrite');
+                    try {
+                        await wrapRequest(store.put(normalizedValue, key));
+                        await txDone(tx);
+                    } finally {
+                        db.close();
+                    }
+                } else {
+                    localStorage.setItem(key, normalizedValue);
+                }
+
+                await listKeys();
+                showStatus('Value saved successfully.', 'success');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        }
+
+        async function deleteByKey() {
+            const key = getKeyFromUI();
+            if (!key) {
+                showStatus('Please provide a key to delete.', 'error');
+                return;
+            }
+
+            if (!confirm(`Delete key "${key}"?`)) return;
+
+            try {
+                if (isIndexedDB()) {
+                    const { db, tx, store } = await getIndexedDbStore(dbNameEl.value.trim(), storeNameEl.value.trim(), 'readwrite');
+                    try {
+                        await wrapRequest(store.delete(key));
+                        await txDone(tx);
+                    } finally {
+                        db.close();
+                    }
+                } else {
+                    localStorage.removeItem(key);
+                }
+
+                valueInputEl.value = '';
+                keyInputEl.value = '';
+                await listKeys();
+                showStatus('Key deleted.', 'success');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        }
+
+        function clearEditor() {
+            valueInputEl.value = '';
+            showStatus('Editor cleared.', 'info');
+        }
+
+        function formatJson() {
+            try {
+                valueInputEl.value = normalizeInputValue(valueInputEl.value);
+                showStatus('JSON formatted.', 'success');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        }
+
+        function triggerImport() {
+            importFileEl.value = '';
+            importFileEl.click();
+        }
+
+        async function exportIndexedDbData(dbName, storeName) {
+            const data = {};
+            const { db, tx, store } = await getIndexedDbStore(dbName, storeName, 'readonly');
+            try {
+                const keys = await wrapRequest(store.getAllKeys());
+                for (const key of keys) {
+                    data[String(key)] = await wrapRequest(store.get(key));
+                }
+                await txDone(tx);
+                return data;
+            } finally {
+                db.close();
+            }
+        }
+
+        async function exportAll() {
+            try {
+                const dbName = dbNameEl.value.trim();
+                const storeName = storeNameEl.value.trim();
+                const exportPayload = {
+                    version: '1.0',
+                    exportedAt: new Date().toISOString(),
+                    localStorage: {},
+                    indexedDB: {
+                        dbName,
+                        storeName,
+                        records: await exportIndexedDbData(dbName, storeName)
+                    }
+                };
+
+                for (const key of Object.keys(localStorage)) {
+                    exportPayload.localStorage[key] = localStorage.getItem(key);
+                }
+
+                const text = JSON.stringify(exportPayload, null, 2);
+                const blob = new Blob([text], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `storage-export-${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showStatus('Export completed.', 'success');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        }
+
+        async function importAll(file) {
+            const text = await file.text();
+            let parsed;
+            try {
+                parsed = JSON.parse(text);
+            } catch (error) {
+                throw new Error(`Invalid import JSON: ${error.message}`);
+            }
+
+            const localData = parsed.localStorage || {};
+            const idbData = parsed.indexedDB || {};
+            const dbName = (idbData.dbName || dbNameEl.value).trim();
+            const storeName = (idbData.storeName || storeNameEl.value).trim();
+            const records = idbData.records || {};
+
+            for (const [key, value] of Object.entries(localData)) {
+                const valueAsString = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+                localStorage.setItem(key, prettifyIfJson(valueAsString));
+            }
+
+            const { db, tx, store } = await getIndexedDbStore(dbName, storeName, 'readwrite');
+            try {
+                for (const [key, value] of Object.entries(records)) {
+                    const valueAsString = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+                    await wrapRequest(store.put(prettifyIfJson(valueAsString), key));
+                }
+                await txDone(tx);
+            } finally {
+                db.close();
+            }
+
+            dbNameEl.value = dbName;
+            storeNameEl.value = storeName;
+            await listKeys();
+        }
+
+        function escapeHtml(value) {
+            return value
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        keySelectEl.addEventListener('change', () => {
+            if (keySelectEl.value) {
+                keyInputEl.value = keySelectEl.value;
+            }
+        });
+
+        storageTypeEl.addEventListener('change', async () => {
+            toggleIndexedDBFields();
+            await listKeys();
+        });
+
+        importFileEl.addEventListener('change', async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            try {
+                await importAll(file);
+                showStatus('Import completed.', 'success');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        });
+
+        toggleIndexedDBFields();
+        listKeys();
+    </script>
+</body>
+</html>
